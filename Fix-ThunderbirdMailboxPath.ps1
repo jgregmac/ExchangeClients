@@ -72,3 +72,6 @@ if ($tProfs.count -gt 0) {
 }
 
 #Now try to restart Thunderbird.
+if ($tRunning) {
+    $tPath = 
+}
