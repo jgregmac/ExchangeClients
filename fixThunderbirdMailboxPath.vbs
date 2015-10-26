@@ -10,28 +10,43 @@
 
 Option Explicit
 
-const quote = """"
+Const quote = """"
+Const ForReading = 1
+Const ForWriting = 2
 
 'Declare Variables:
-Dim aExeArgs, aKills
-Dim bBadArg, bNoArgs
+Dim aKills(1)
+Dim bIsRunning, bMatch, bPathPrefixExists, bRestore
 Dim cScrArgs
 Dim iReturn
-Dim oShell, oFS, oLog
-Dim sBadArg, sCmd, sExe, sExeArg, sKill, sLog, sScrArg, sTemp
+Dim oShell, oFS, oFile, oLog
+Dim re
+Dim sBadArg, sCmd, sKill, sLine, sLog, sNewContents, sScrArg, sTemp
 
 'Set initial values:
-bBadArg = false
-bNoArgs = false
-bNoExeArg = false
-bNoExec = false
-bNoKill = false
-bNoKillArg = false
+aKills(0) = "thunderbird.exe"
+bRestore = False
+bMatch = False
+bPathPrefixExists = False
 iReturn = 0
 
 'Instantiate Global Objects:
 Set oShell = CreateObject("WScript.Shell")
 Set oFS  = CreateObject("Scripting.FileSystemObject")
+Set re = New RegExp
+
+'Initialize Regular Expression object to search for the Mailbox path prefix:
+re.Pattern    = "^user_pref\(""mail\.server\.server[2-9]\.server_sub_directory"""
+re.IgnoreCase = False
+re.Global     = False
+
+'''''''''''''''''''''''''''''''''''''''''''''''''''
+' Initialize Logging
+sTemp = oShell.ExpandEnvironmentStrings("%TEMP%")
+sLog = "fixThuderbirdMailPrefix.log"
+Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
+' End Initialize Logging
+'''''''''''''''''''''''''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Define Functions
@@ -71,10 +86,12 @@ end function
 function fKillProcs(aKills)
 ' Requires:
 '     aKills - an array of strings, with each entry being the name of a running process.   
-	Dim cProcs
+	Dim bKilled
+    Dim cProcs
 	Dim sProc, sQuery
 	Dim oWMISvc, oProc
-
+    
+    bKilled = False
 	Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
 	sQuery = "Select Name from Win32_Process Where " 'Root query, will be expanded.	
 	'Complete the query string using process names in "aKill"
@@ -98,6 +115,7 @@ function fKillProcs(aKills)
 		   Case 0
 			   echoAndLog "Killed process " & oProc.Name & "."
 			   Err.Clear
+               bKilled = True
 		   Case -2147217406
 			   echoAndLog "Process " & oProc.Name & " already closed."
 			   Err.Clear
@@ -107,7 +125,7 @@ function fKillProcs(aKills)
 			   echoAndLog "Error Description: " & Err.Description
 			   echoAndLog "Finished process termination function with error."
 			   echoAndLog "----------------------------------"
-			   echoAndLog vbCrLf & "Kill and Exec script finished."
+			   echoAndLog vbCrLf & "script finished."
 			   echoAndLog "**********************************" & vbCrLf
 			   WScript.Quit(101)
 	   End Select
@@ -116,22 +134,11 @@ function fKillProcs(aKills)
 	On Error Goto 0
 	echoAndLog "Finished process termination function."
 	echoAndLog "----------------------------------"
-end function
-
-function fGetHlpMsg(sReturn)
-' Gets known help message content for the return code provided in "sReturn".
-' Requires:
-'     Existing WScript.Shell object named "oShell"
-	Dim sCmd, sLine, sOut
-	Dim oExec
-	sCmd = "net.exe helpmsg " & sReturn
-	echoAndLog "Help Text for Return Code:"
-	set oExec = oShell.Exec(sCmd)
-	Do While oExec.StdOut.AtEndOfStream <> True
-		sLine = oExec.StdOut.ReadLine
-		sOut = sOut & sLine
-	Loop
-	fGetHlpMsg = sOut
+    If bKilled Then
+        fKillProcs = True
+    Else
+        fKillProcs = False
+    End If
 end function
 '
 ' End Define Functions
@@ -154,14 +161,6 @@ End If
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''
-' Initialize Logging
-sTemp = oShell.ExpandEnvironmentStrings("%TEMP%")
-sLog = "fixThuderbirdMailPrefix.log"
-Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
-' End Initialize Logging
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-
-'''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Process Arguments
 if bRestore then
 	echoAndLog vbCrLf & "Unknown switch or argument: " & sBadArg & "."
@@ -176,33 +175,82 @@ end if
 'Begin Main
 '
 
+'Locate prefs.js file:
 
-'Kill requested processes:
 
-	fKillProcs aKills
+'Determine System Architecture:
+Dim oWMISvc
+Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
+Dim sQuery 
+sQuery = "Select OSArchitecture from Win32_OperatingSystem"
+Dim cArch
+Set cArch = oWMISvc.ExecQuery(sQuery, "WQL", 48)
+Dim bIs64 
+bIs64 = False
+Dim oArch
+Dim sArch
+For Each oArch in cArch
+    sArch = CStr(oArch.OSArchitecture)
+    If InStr(sArch,"64-bit") > 0 Then
+        bIs64 = True
+    End If
+Next
+WScript.Echo "System is 64-bit: " & bIs64
+'Determine Program Files path:
+Dim sProgramFiles
+If bIs64 Then
+    sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles(x86)%")
+Else
+    sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles%")
+End If 
+WScript.Echo "Program Files directory path is: " & sProgramFiles
+'Determine Path to Thunderbird.exe
+Dim sTPath
+sTPath = sProgramFiles & "\Mozilla Thunderbird\thunderbird.exe"
+If oFS.FileExists(sTPath) Then
+    WScript.Echo "Found Thunderbird.exe."
+Else 
+    WScript.Echo "Could not find Thunderbird.exe"
+End If
 
-'Run the requested command:
+'Determine if Thunderbird is running and kill it:
+bIsRunning = fKillProcs(aKills)
+
 echoAndLog vbCrLf & "----------------------------------"
+echoAndLog "Begin mailbox path prefix remediation:"
+'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
+Set oFile = oFS.OpenTextFile("C:\Users\jgm\AppData\Roaming\Thunderbird\Profiles\zsdbge0t.default\prefs.js", ForReading)
+Do Until oFile.AtEndOfStream
+    sLine = oFile.ReadLine
+    bMatch = re.Test(sLine)
+    If bMatch Then
+        echoAndLog "Found the mailbox path prefix in prefs.js."
+        bPathPrefixExists = True
+    Else
+        sNewContents = sNewContents & sLine & vbCrLf
+    End If
+Loop
+oFile.Close
 
-	echoAndLog "Running the command..."
-	on error resume next 'Disable exit on error to allow capture of oShell.Run execution problems.
-	iReturn = oShell.Run(sCmd,10,True)
-	if err.number <> 0 then 'Gather error data if oShell.Run failed.
-	    echoAndLog "Error: " & Err.Number
-		echoAndLog "Error (Hex): " & Hex(Err.Number)
-		echoAndLog "Source: " &  Err.Source
-		echoAndLog "Description: " &  Err.Description
-		iReturn = Err.Number
-		Err.Clear
-		wscript.quit(iReturn)
-	end if
-	on error goto 0
-	echoAndLog "Return code from the command: " & iReturn
-	if iReturn <> 0 then 'If the command returned a non-zero code, then get help for the code:
-		fGetHlpMsg iReturn
-	end if 
-
+' If we found a match, write the changes out to file:
+If bPathPrefixExists Then
+    echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."
+    Set oFile = oFS.OpenTextFile("C:\Users\jgm\AppData\Roaming\Thunderbird\Profiles\zsdbge0t.default\prefs.js", ForWriting)
+    oFile.Write sNewContents
+    oFile.Close  
+Else
+    echoAndLog "Mailbox path prefix not found in prefs.js."
+End If
+echoAndLog "End mailbox path prefix remediation."
 echoAndLog "----------------------------------"
+
+If bIsRunning Then
+    echoAndLog vbCrLf & "----------------------------------"
+    echoAndLog "Restarting Thunderbird..."
+    'Run the executable in sTPath.  Ensure that it will not terminate when this script exits.
+    echoAndLog "----------------------------------"
+End If
+
 
 oLog.Close
 wscript.quit(iReturn)
