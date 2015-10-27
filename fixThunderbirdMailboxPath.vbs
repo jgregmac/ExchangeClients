@@ -13,6 +13,8 @@ Option Explicit
 Const quote = """"
 Const ForReading = 1
 Const ForWriting = 2
+Const ActivateAndDisplay = 1
+Const noWaitOnDisplay = 0
 
 'Declare Variables:
 Dim aKills(1)
@@ -103,37 +105,37 @@ function fKillProcs(aKills)
 
 	'Create a collection of processes named in the constructed WQL query
 	Set cProcs = oWMISvc.ExecQuery(sQuery, "WQL", 48)
-	echoAndLog vbCrLf & "----------------------------------"
+	echoAndLog vbCrLf & "--------------------------------------------------"
 	echoAndLog "Checking for processes to terminate..."
-	'Set this to look for errors that aren't fatal when killing processes.
-	On Error Resume Next
-	'Cycle through found problematic processes and kill them.
-	For Each oProc in cProcs
-	   echoAndLog "Found process " & oProc.Name & "."
-	   oProc.Terminate()
-	   Select Case Err.Number
-		   Case 0
-			   echoAndLog "Killed process " & oProc.Name & "."
-			   Err.Clear
+    'Set this to look for errors that aren't fatal when killing processes.
+    On Error Resume Next
+    'Cycle through found problematic processes and kill them.
+    For Each oProc in cProcs
+       echoAndLog "Found process " & oProc.Name & "."
+       oProc.Terminate()
+       Select Case Err.Number
+           Case 0
+               echoAndLog "Killed process " & oProc.Name & "."
+               Err.Clear
                bKilled = True
-		   Case -2147217406
-			   echoAndLog "Process " & oProc.Name & " already closed."
-			   Err.Clear
-		   Case Else
-			   echoAndLog "Could not kill process " & oProc.Name & "! Aborting Script!"
-			   echoAndLog "Error Number: " & Err.Number
-			   echoAndLog "Error Description: " & Err.Description
-			   echoAndLog "Finished process termination function with error."
-			   echoAndLog "----------------------------------"
-			   echoAndLog vbCrLf & "script finished."
-			   echoAndLog "**********************************" & vbCrLf
-			   WScript.Quit(101)
-	   End Select
-	Next
+           Case -2147217406
+               echoAndLog "Process " & oProc.Name & " already closed."
+               Err.Clear
+           Case Else
+               echoAndLog "Could not kill process " & oProc.Name & "! Aborting Script!"
+               echoAndLog "Error Number: " & Err.Number
+               echoAndLog "Error Description: " & Err.Description
+               echoAndLog "Finished process termination function with error."
+               echoAndLog "--------------------------------------------------"
+               echoAndLog vbCrLf & "script finished."
+               echoAndLog "************************************************************" & vbCrLf
+               WScript.Quit(201)
+       End Select
+    Next
 	'Resume normal error handling.
 	On Error Goto 0
 	echoAndLog "Finished process termination function."
-	echoAndLog "----------------------------------"
+	echoAndLog "------------------------------------------------------------"
     If bKilled Then
         fKillProcs = True
     Else
@@ -144,116 +146,140 @@ end function
 ' End Define Functions
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-' Parse Arguments
-If WScript.Arguments.Named.Count > 0 Then
-	Set cScrArgs = WScript.Arguments.Named
-	For Each sScrArg in cScrArgs
-		Select Case LCase(sScrArg)
-			Case "restore"
-				bRestore = True
-			Case Else
-				bRestore = False
-		End Select
-	Next
-End If 
-' End Argument Parsing
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-' Process Arguments
-if bRestore then
-	echoAndLog vbCrLf & "Unknown switch or argument: " & sBadArg & "."
-	echoAndLog "**********************************" & vbCrLf
-	subHelp
-	WScript.Quit(100)
-end if
-' End Process Arguments
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-
-'''''''''''''''''''''''''''''''''''''''''''''''''''
-'Begin Main
-'
-
-'Locate prefs.js file:
-
-
-'Determine System Architecture:
-Dim oWMISvc
-Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
-Dim sQuery 
-sQuery = "Select OSArchitecture from Win32_OperatingSystem"
-Dim cArch
-Set cArch = oWMISvc.ExecQuery(sQuery, "WQL", 48)
-Dim bIs64 
-bIs64 = False
-Dim oArch
-Dim sArch
-For Each oArch in cArch
-    sArch = CStr(oArch.OSArchitecture)
-    If InStr(sArch,"64-bit") > 0 Then
-        bIs64 = True
+echoAndLog vbCrLf & "************************************************************"
+echoAndLog "*----------------------------------------------------------*"
+echoAndLog "Locating Thunderbird Prefs.js..." & vbCrLf
+Dim sUProfile
+sUProfile = oShell.ExpandEnvironmentStrings("%USERPROFILE%")
+Dim oProfileDir
+Set oProfileDir = oFS.GetFolder(sUProfile & "\AppData\Roaming\Thunderbird\Profiles")
+Dim bPrefsFound
+bPrefsFound = False
+Dim cProfiles
+Set cProfiles = oProfileDir.subFolders
+Dim iSize
+iSize = CInt(0)
+ReDim aPrefs(iSize)
+Dim oProfile
+For Each oProfile in cProfiles
+    Dim sPrefsPath
+    sPrefsPath = oProfile.Path & "\prefs.js"
+    Dim bExists
+    bExists = False
+    bExists = oFS.FileExists(sPrefsPath)
+    If bExists Then
+        bPrefsFound = True
+        ReDim Preserve aPrefs(iSize)
+        aPrefs(iSize) = sPrefsPath
+        echoAndLog "Prefs.js exists in path: "
+        echoAndLog vbCrLf & aPrefs(iSize)
+        iSize = iSize + 1
     End If
 Next
-WScript.Echo "System is 64-bit: " & bIs64
-'Determine Program Files path:
-Dim sProgramFiles
-If bIs64 Then
-    sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles(x86)%")
+If bPrefsFound Then
+    echoAndLog vbCrLf & "Count of preference files located: " & iSize
 Else
-    sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles%")
-End If 
-WScript.Echo "Program Files directory path is: " & sProgramFiles
-'Determine Path to Thunderbird.exe
-Dim sTPath
-sTPath = sProgramFiles & "\Mozilla Thunderbird\thunderbird.exe"
-If oFS.FileExists(sTPath) Then
-    WScript.Echo "Found Thunderbird.exe."
-Else 
-    WScript.Echo "Could not find Thunderbird.exe"
+    echoAndLog vbCrLf & "No prefs.js files located.  Quitting..."
+    WScript.Quit(201)
 End If
+echoAndLog "*----------------------------------------------------------*"
 
-'Determine if Thunderbird is running and kill it:
-bIsRunning = fKillProcs(aKills)
 
-echoAndLog vbCrLf & "----------------------------------"
+echoAndLog vbCrLf & "*----------------------------------------------------------*"
 echoAndLog "Begin mailbox path prefix remediation:"
-'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
-Set oFile = oFS.OpenTextFile("C:\Users\jgm\AppData\Roaming\Thunderbird\Profiles\zsdbge0t.default\prefs.js", ForReading)
-Do Until oFile.AtEndOfStream
-    sLine = oFile.ReadLine
-    bMatch = re.Test(sLine)
-    If bMatch Then
-        echoAndLog "Found the mailbox path prefix in prefs.js."
-        bPathPrefixExists = True
+Dim i
+For i = LBound(aPrefs) To UBound(aPrefs)
+    'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
+    wscript.echo "Pref contents: " & aPrefs(i)
+    Set oFile = oFS.OpenTextFile(aPrefs(i), ForReading)
+    Do Until oFile.AtEndOfStream
+        sLine = oFile.ReadLine
+        bMatch = re.Test(sLine)
+        If bMatch Then
+            echoAndLog "Found the mailbox path prefix in prefs.js."
+            bPathPrefixExists = True
+        Else
+            sNewContents = sNewContents & sLine & vbCrLf
+        End If
+    Loop
+    oFile.Close
+    ' If we found a match, kill Thunderbird and write the changes out to file:
+    If bPathPrefixExists Then
+        'Determine if Thunderbird is running and kill it:
+        bIsRunning = fKillProcs(aKills)
+        echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."
+        Set oFile = oFS.OpenTextFile(aPrefs(i), ForWriting)
+        oFile.Write sNewContents
+        On Error Resume Next
+        oFile.Close
+        Select Case Err.Number
+            Case 0
+                echoAndLog "Successfully updated prefs.js."
+                Err.Clear
+            Case Else
+                WScript.Quit(301)
+        End Select
+        On Error Goto 0
     Else
-        sNewContents = sNewContents & sLine & vbCrLf
+        echoAndLog "Mailbox path prefix not found in prefs.js."
     End If
-Loop
-oFile.Close
-
-' If we found a match, write the changes out to file:
-If bPathPrefixExists Then
-    echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."
-    Set oFile = oFS.OpenTextFile("C:\Users\jgm\AppData\Roaming\Thunderbird\Profiles\zsdbge0t.default\prefs.js", ForWriting)
-    oFile.Write sNewContents
-    oFile.Close  
-Else
-    echoAndLog "Mailbox path prefix not found in prefs.js."
-End If
+Next
 echoAndLog "End mailbox path prefix remediation."
-echoAndLog "----------------------------------"
+echoAndLog "*----------------------------------------------------------*"
 
 If bIsRunning Then
-    echoAndLog vbCrLf & "----------------------------------"
-    echoAndLog "Restarting Thunderbird..."
+    echoAndLog vbCrLf & "*----------------------------------------------------------*"
+    echoAndLog "Thunderbird was previously running.  Restarting Thunderbird..."
+    echoAndLog "--------------------------------------------------"
+    echoAndLog "Determining system architecture..."
+    'Determine System Architecture:
+    Dim oWMISvc
+    Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
+    Dim sQuery 
+    sQuery = "Select OSArchitecture from Win32_OperatingSystem"
+    Dim cArch
+    Set cArch = oWMISvc.ExecQuery(sQuery, "WQL", 48)
+    Dim bIs64 
+    bIs64 = False
+    Dim oArch
+    Dim sArch
+    For Each oArch in cArch
+        sArch = CStr(oArch.OSArchitecture)
+        If InStr(sArch,"64-bit") > 0 Then
+            bIs64 = True
+            echoAndLog "System is 64-bit."
+        Else
+            echoAndLog "System is 32-bit."
+        End If
+    Next
+    echoAndLog "--------------------------------------------------"
+    echoAndLog "Determining path to Thunderbird Program Files..."
+    'Determine Program Files path:
+    Dim sProgramFiles
+    If bIs64 Then
+        sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles(x86)%")
+    Else
+        sProgramFiles = oShell.ExpandEnvironmentStrings("%ProgramFiles%")
+    End If 
+    echoAndLog "Program Files directory path is: " 
+    echoAndLog sProgramFiles
+    'Determine Path to Thunderbird.exe
+    Dim sTPath
+    sTPath = sProgramFiles & "\Mozilla Thunderbird\thunderbird.exe"
+    If oFS.FileExists(sTPath) Then
+        echoAndLog "Found Thunderbird.exe in path:"
+        echoAndLog sTPath
+    Else 
+        echoAndLog "Could not find Thunderbird.exe"
+    End If
+    echoAndLog "--------------------------------------------------"
     'Run the executable in sTPath.  Ensure that it will not terminate when this script exits.
-    echoAndLog "----------------------------------"
+    echoAndLog "Now restarting Thunderbird..."
+    oShell.Run quote & sTPath & quote,ActivateAndDisplay,noWaitOnDisplay
+    echoAndLog "*----------------------------------------------------------*"
+    echoAndLog "************************************************************"
 End If
 
 
 oLog.Close
 wscript.quit(iReturn)
-'
-' End Main
-'''''''''''''''''''''''''''''''''''''''''''''''''''
