@@ -45,7 +45,7 @@ re.Global     = False
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Initialize Logging
 sTemp = oShell.ExpandEnvironmentStrings("%TEMP%")
-sLog = "fixThuderbirdMailPrefix.log"
+sLog = "fixThuderbirdMailboxPath.log"
 Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' End Initialize Logging
 '''''''''''''''''''''''''''''''''''''''''''''''''''
