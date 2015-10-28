@@ -1,12 +1,15 @@
 'fixThuderbirdMailPrefix.vbs script, J. Greg Mackinnon, 2015-10-22
 ' Kills any running Thunderbird processes, removes the legacy mailbox path prefix, 
 ' and restarts Thunderbird if it was running.
-' A backup copy of the userpref.js file is created when the script is run.  This file can be 
-' restored by running this script with the "restore" switch.
+' A backup copy of the userpref.js file is created when the script is run.  
+'
 'Provides:
-' RC=101 - Error terminating the requests processes
-' RC=100 - Invalid input parameters
-' Other return codes - Pass-though of return code from WShell.Exec.Run using the provided input parameters
+' RC=101 - Could not Locate a Thunderbird user profiles storage directory.
+' RC=102 - Could not locate a Thunderbird prefs.js file to modify.
+' RC=201 - Could not stop the running Thunderbird processes.
+' RC=301 - Could not write out changes to the prefs.js file.
+' RC=401 - Could not determine the system architecture (used to locate Thunderbird.exe).
+' RC=402 - Could not determine the path to Thunderbird.exe
 
 Option Explicit
 
@@ -18,19 +21,16 @@ Const noWaitOnDisplay = 0
 
 'Declare Variables:
 Dim aKills(1)
-Dim bIsRunning, bMatch, bPathPrefixExists, bRestore
+Dim bIsRunning, bRestore
 Dim cScrArgs
-Dim iReturn
 Dim oShell, oFS, oFile, oLog
-Dim re
-Dim sBadArg, sCmd, sKill, sLine, sLog, sNewContents, sScrArg, sTemp
+Dim re 'Regular Expression
+Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sTemp
 
 'Set initial values:
+sMsgTitle = "UVM Fix Thunderbird Mailbox Path Prefix Tool"
 aKills(0) = "thunderbird.exe"
 bRestore = False
-bMatch = False
-bPathPrefixExists = False
-iReturn = 0
 
 'Instantiate Global Objects:
 Set oShell = CreateObject("WScript.Shell")
@@ -54,21 +54,21 @@ Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' Define Functions
 '
 Sub subHelp
-	echoAndLog "KillAndExec.vbs Script"
+	echoAndLog "fixThunderbirdMailboxPath.vbs Script"
 	echoAndLog "by J. Greg Mackinnon, University of Vermont"
 	echoAndLog ""
-	echoAndLog "Kills named processes and runs the provided executable."
-	echoAndLog "Logs output to 'KillAndExec-[exeName].log' in the %temp% directory."
-	echoAndLog ""
-	echoAndLog "Required arguments and syntax:"
-	echoAndLog "/kill:""[process1];[process2]..."""
-	echoAndLog "     Specify the image name of one or more processes to terminate."
-	echoAndLog "/exe:""[ExecutableFile.exe]"""
-	echoAndLog "     Specify the name of the executable to run."
-	echoAndLog ""
-	echoAndLog "Optional arguments:"
-	echoAndLog "/args""[arg1];[arg2];[arg3]..."""
-	echoAndLog "     Specify one or more arguments to pass to the executable."
+	echoAndLog "Kills any running Thunderbird processes, removes the legacy mailbox path prefix, "
+	echoAndLog "and restarts Thunderbird if it was running."
+    echoAndLog ""
+	echoAndLog "A backup copy of the userpref.js file is created when the script is run."
+	echoAndLog "Returns:"
+    echoAdnLog " RC=101 - Could not Locate a Thunderbird user profiles storage directory."
+    echoAndLog " RC=102 - Could not locate a Thunderbird prefs.js file to modify."
+    echoAndLog " RC=201 - Could not stop the running Thunderbird processes."
+    echoAndLog " RC=301 - Could not write out changes to the prefs.js file."
+    echoAdnLog " RC=401 - Could not determine the system architecture (used to locate Thunderbird.exe)."
+    echoAndLog " RC=402 - Could not determine the path to Thunderbird.exe."
+    echoAndLog ""
 End Sub
 
 function echoAndLog(sText)
@@ -105,7 +105,7 @@ function fKillProcs(aKills)
 
 	'Create a collection of processes named in the constructed WQL query
 	Set cProcs = oWMISvc.ExecQuery(sQuery, "WQL", 48)
-	echoAndLog vbCrLf & "--------------------------------------------------"
+	echoAndLog "--------------------------------------------------"
 	echoAndLog "Checking for processes to terminate..."
     'Set this to look for errors that aren't fatal when killing processes.
     On Error Resume Next
@@ -122,20 +122,22 @@ function fKillProcs(aKills)
                echoAndLog "Process " & oProc.Name & " already closed."
                Err.Clear
            Case Else
-               echoAndLog "Could not kill process " & oProc.Name & "! Aborting Script!"
+                sErr = "Could not stop Thunderbird.  Please exit Thunderbird before running this script again."
+               echoAndLog sErr
                echoAndLog "Error Number: " & Err.Number
                echoAndLog "Error Description: " & Err.Description
                echoAndLog "Finished process termination function with error."
                echoAndLog "--------------------------------------------------"
                echoAndLog vbCrLf & "script finished."
                echoAndLog "************************************************************" & vbCrLf
+               msgBox sErr, 16, sMsgTitle
                WScript.Quit(201)
        End Select
     Next
 	'Resume normal error handling.
 	On Error Goto 0
 	echoAndLog "Finished process termination function."
-	echoAndLog "------------------------------------------------------------"
+	echoAndLog "--------------------------------------------------"
     If bKilled Then
         fKillProcs = True
     Else
@@ -152,7 +154,21 @@ echoAndLog "Locating Thunderbird Prefs.js..." & vbCrLf
 Dim sUProfile
 sUProfile = oShell.ExpandEnvironmentStrings("%USERPROFILE%")
 Dim oProfileDir
+On Error Resume Next
 Set oProfileDir = oFS.GetFolder(sUProfile & "\AppData\Roaming\Thunderbird\Profiles")
+Select Case Err.Number
+    Case 0
+        echoAndLog "Located Thunderbird Profiles directory."
+        Err.Clear
+    Case Else
+        sErr = "Could not find a Thunderbird user profiles storage directory! Aborting Script!"
+        echoAndLog sErr
+        echoAndLog "*----------------------------------------------------------*"
+        echoAndLog "************************************************************"
+        msgBox sErr, 16, sMsgTitle
+        WScript.Quit(101)
+End Select
+On Error Goto 0
 Dim bPrefsFound
 bPrefsFound = False
 Dim cProfiles
@@ -172,39 +188,48 @@ For Each oProfile in cProfiles
         ReDim Preserve aPrefs(iSize)
         aPrefs(iSize) = sPrefsPath
         echoAndLog "Prefs.js exists in path: "
-        echoAndLog vbCrLf & aPrefs(iSize)
+        echoAndLog aPrefs(iSize)
         iSize = iSize + 1
     End If
 Next
 If bPrefsFound Then
-    echoAndLog vbCrLf & "Count of preference files located: " & iSize
+    echoAndLog "Count of preference files located: " & iSize
 Else
-    echoAndLog vbCrLf & "No prefs.js files located.  Quitting..."
-    WScript.Quit(201)
+    sErr = "No Thunderbird users preferences files located.  Quitting..."
+    echoAndLog sErr
+    echoAndLog "*----------------------------------------------------------*"
+    echoAndLog "************************************************************"
+    msgBox sErr, 16, sMsgTitle
+    WScript.Quit(102)
 End If
 echoAndLog "*----------------------------------------------------------*"
 
 
 echoAndLog vbCrLf & "*----------------------------------------------------------*"
-echoAndLog "Begin mailbox path prefix remediation:"
+echoAndLog "Begin mailbox path prefix remediation:" & vbCrLf
+Dim bMatch
+bMatch = False
+Dim bPathPrefixFound
+bPathPrefixFound = False
 Dim i
 For i = LBound(aPrefs) To UBound(aPrefs)
     'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
-    wscript.echo "Pref contents: " & aPrefs(i)
+    echoAndLog "Reading Pref.js contents: " & vbCrLf & aPrefs(i)
     Set oFile = oFS.OpenTextFile(aPrefs(i), ForReading)
     Do Until oFile.AtEndOfStream
         sLine = oFile.ReadLine
         bMatch = re.Test(sLine)
         If bMatch Then
-            echoAndLog "Found the mailbox path prefix in prefs.js."
-            bPathPrefixExists = True
+            echoAndLog "Found the mailbox path prefix in prefs.js:"
+            echoAndLog sLine
+            bPathPrefixFound = True
         Else
             sNewContents = sNewContents & sLine & vbCrLf
         End If
     Loop
     oFile.Close
     ' If we found a match, kill Thunderbird and write the changes out to file:
-    If bPathPrefixExists Then
+    If bPathPrefixFound Then
         'Determine if Thunderbird is running and kill it:
         bIsRunning = fKillProcs(aKills)
         echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."
@@ -217,11 +242,20 @@ For i = LBound(aPrefs) To UBound(aPrefs)
                 echoAndLog "Successfully updated prefs.js."
                 Err.Clear
             Case Else
+                sErr = "Could not write out changes to prefs.js! Aborting Script!"
+                echoAndLog sErr
+                msgBox sErr, 16, sMsgTitle
                 WScript.Quit(301)
         End Select
         On Error Goto 0
     Else
-        echoAndLog "Mailbox path prefix not found in prefs.js."
+        sErr = "The IMAP mailbox path prefix setting was not found in the " & vbCrLf _
+        & "user preferences file.  Thunderbird does not need to be updated."
+        echoAndLog sErr
+        echoAndLog "*----------------------------------------------------------*"
+        echoAndLog "************************************************************"
+        msgBox sErr, 0, sMsgTitle
+        WScript.Quit(0)
     End If
 Next
 echoAndLog "End mailbox path prefix remediation."
@@ -229,16 +263,30 @@ echoAndLog "*----------------------------------------------------------*"
 
 If bIsRunning Then
     echoAndLog vbCrLf & "*----------------------------------------------------------*"
-    echoAndLog "Thunderbird was previously running.  Restarting Thunderbird..."
+    echoAndLog "Thunderbird was previously running.  Restarting Thunderbird..." & vbCrLf
     echoAndLog "--------------------------------------------------"
     echoAndLog "Determining system architecture..."
-    'Determine System Architecture:
     Dim oWMISvc
     Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
     Dim sQuery 
     sQuery = "Select OSArchitecture from Win32_OperatingSystem"
     Dim cArch
+    On Error Resume Next
     Set cArch = oWMISvc.ExecQuery(sQuery, "WQL", 48)
+    Select Case Err.Number
+        Case 0
+            echoAndLog "System architecture queried successfully."
+            Err.Clear
+        Case Else
+            sErr = "Could not determine the system architecture." & vbCrLf _
+                & "Thunderbird preferences were updated, but you will need to restart Thunderbird manually."
+            echoAndLog sErr
+            echoAndLog "*----------------------------------------------------------*"
+            echoAndLog "************************************************************"
+            msgBox sErr, 32, sMsgTitle
+            WScript.Quit(401)
+    End Select
+    On Error Goto 0
     Dim bIs64 
     bIs64 = False
     Dim oArch
@@ -263,14 +311,19 @@ If bIsRunning Then
     End If 
     echoAndLog "Program Files directory path is: " 
     echoAndLog sProgramFiles
-    'Determine Path to Thunderbird.exe
     Dim sTPath
     sTPath = sProgramFiles & "\Mozilla Thunderbird\thunderbird.exe"
     If oFS.FileExists(sTPath) Then
         echoAndLog "Found Thunderbird.exe in path:"
         echoAndLog sTPath
     Else 
-        echoAndLog "Could not find Thunderbird.exe"
+        sErr = "Could not find the Thunderbird program files." & vbCrLf & vbCrLf _
+            & "Thunderbird preferences were updated, but you will need to restart Thunderbird manually."
+        echoAndLog sErr
+        echoAndLog "*----------------------------------------------------------*"
+        echoAndLog "************************************************************"
+        msgBox sErr, 32, sMsgTitle
+        WScript.Quit(402)
     End If
     echoAndLog "--------------------------------------------------"
     'Run the executable in sTPath.  Ensure that it will not terminate when this script exits.
@@ -280,6 +333,7 @@ If bIsRunning Then
     echoAndLog "************************************************************"
 End If
 
-
 oLog.Close
-wscript.quit(iReturn)
+sErr = "Thunderbird preferences files updated successfully." & vbCrLf & "Have a happy migration to Exchange."
+msgBox sErr, 0, sMsgTitle
+wscript.quit(0)
