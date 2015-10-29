@@ -37,4 +37,4 @@ Echo Cleaning up build environment...
 del /f /q .\%fname%.7z
 Echo.
 Echo You still need to sign this thing:
-%SDKPath%\signtool.exe sign /f "%CertPath%" /p "%CertPass%" /t %TimeStampUrl% /v fixThunderbirdMailboxPath.exe
+%SDKPath%\signtool.exe sign /f "%CertPath%" /p "%CertPass%" /t %TimeStampUrl% /v %fname%.exe
