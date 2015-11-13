@@ -7,6 +7,7 @@
 'Provides:
 ' RC=101 - Could not Locate a Thunderbird user profiles storage directory.
 ' RC=102 - Could not locate a Thunderbird prefs.js file to modify.
+' RC=200 - User chose not to terminate Thunderbird.  Script execution canceled.
 ' RC=201 - Could not stop the running Thunderbird processes.
 ' RC=301 - Could not write out changes to the prefs.js file.
 ' RC=401 - Could not determine the system architecture (used to locate Thunderbird.exe).
@@ -29,8 +30,8 @@ Dim re1, re2 'Regular Expressions
 Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sTemp
 
 'Set initial values:
-sMsgTitle = "UVM Fix Thunderbird Mailbox Path Prefix Tool"
-aKills(0) = "thunderbird.exe"
+sMsgTitle = "UVM Exchange Preperation Tool for Thunderbird"
+aKills(0) = "Thunderbird.exe"
 bRestore = False
 
 'Instantiate Global Objects:
@@ -72,6 +73,7 @@ Sub subHelp
 	echoAndLog "Returns:"
     echoAdnLog " RC=101 - Could not Locate a Thunderbird user profiles storage directory."
     echoAndLog " RC=102 - Could not locate a Thunderbird prefs.js file to modify."
+    echoAndLog " RC=200 - User chose not to terminate Thunderbird.  Script execution canceled."
     echoAndLog " RC=201 - Could not stop the running Thunderbird processes."
     echoAndLog " RC=301 - Could not write out changes to the prefs.js file."
     echoAdnLog " RC=401 - Could not determine the system architecture (used to locate Thunderbird.exe)."
@@ -96,56 +98,67 @@ end function
 function fKillProcs(aKills)
 ' Requires:
 '     aKills - an array of strings, with each entry being the name of a running process.   
-	Dim bKilled
+    Dim bKilled
     Dim cProcs
-	Dim sProc, sQuery
-	Dim oWMISvc, oProc
-    
-    bKilled = False
-	Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
-	sQuery = "Select Name from Win32_Process Where " 'Root query, will be expanded.	
-	'Complete the query string using process names in "aKill"
-	for each sProc in aKills
-		sQuery = sQuery & "Name = '" & sProc & "' OR "
-	next
-	'Remove the trailing " OR" from the query string
-	sQuery = Left(sQuery,Len(sQuery)-3)
+    Dim iResponse
+    Dim sProc, sQuery
+    Dim oWMISvc, oProc
 
-	'Create a collection of processes named in the constructed WQL query
-	Set cProcs = oWMISvc.ExecQuery(sQuery, "WQL", 48)
-	echoAndLog "--------------------------------------------------"
-	echoAndLog "Checking for processes to terminate..."
-    'Set this to look for errors that aren't fatal when killing processes.
-    On Error Resume Next
+    bKilled = False
+    Set oWMISvc = GetObject("winmgmts:{impersonationLevel=impersonate, (Debug)}\\.\root\cimv2")
+    sQuery = "Select Name from Win32_Process Where " 'Root query, will be expanded.	
+    'Complete the query string using process names in "aKill"
+    for each sProc in aKills
+        sQuery = sQuery & "Name = '" & sProc & "' OR "
+    next
+    'Remove the trailing " OR" from the query string
+    sQuery = Left(sQuery,Len(sQuery)-3)
+
+    'Create a collection of processes named in the constructed WQL query
+    Set cProcs = oWMISvc.ExecQuery(sQuery, "WQL", 48)
+    echoAndLog "--------------------------------------------------"
+    echoAndLog "Checking for processes to terminate..."
     'Cycle through found problematic processes and kill them.
     For Each oProc in cProcs
-       echoAndLog "Found process " & oProc.Name & "."
-       oProc.Terminate()
-       Select Case Err.Number
-           Case 0
-               echoAndLog "Killed process " & oProc.Name & "."
-               Err.Clear
-               bKilled = True
-           Case -2147217406
-               echoAndLog "Process " & oProc.Name & " already closed."
-               Err.Clear
-           Case Else
+        echoAndLog "Found process " & oProc.Name & "."
+        sErr = oProc.Name & " is currently running.  Click 'Okay' to exit " _
+        & oProc.Name & " and continue with updates."
+        iResponse = MsgBox(sErr, 33, sMsgTitle)
+        if iResponse = 1 then
+            'Set this to look for errors that aren't fatal when killing processes.
+            On Error Resume Next
+            oProc.Terminate()
+        else 
+            sErr = "Task canceled, no changes made to Thunderbird.  Please start " _
+            & "this tool again when Thunderbird is not running."
+            msgBox sErr, 16, sMsgTitle
+            WScript.Quit(200)
+        end if
+        Select Case Err.Number
+            Case 0
+                echoAndLog "Killed process " & oProc.Name & "."
+                Err.Clear
+                bKilled = True
+            Case -2147217406
+                echoAndLog "Process " & oProc.Name & " already closed."
+                Err.Clear
+            Case Else
                 sErr = "Could not stop Thunderbird.  Please exit Thunderbird before running this script again."
-               echoAndLog sErr
-               echoAndLog "Error Number: " & Err.Number
-               echoAndLog "Error Description: " & Err.Description
-               echoAndLog "Finished process termination function with error."
-               echoAndLog "--------------------------------------------------"
-               echoAndLog vbCrLf & "script finished."
-               echoAndLog "************************************************************" & vbCrLf
-               msgBox sErr, 16, sMsgTitle
-               WScript.Quit(201)
-       End Select
+                echoAndLog sErr
+                echoAndLog "Error Number: " & Err.Number
+                echoAndLog "Error Description: " & Err.Description
+                echoAndLog "Finished process termination function with error."
+                echoAndLog "--------------------------------------------------"
+                echoAndLog vbCrLf & "script finished."
+                echoAndLog "************************************************************" & vbCrLf
+                msgBox sErr, 16, sMsgTitle
+                WScript.Quit(201)
+        End Select
     Next
-	'Resume normal error handling.
-	On Error Goto 0
-	echoAndLog "Finished process termination function."
-	echoAndLog "--------------------------------------------------"
+    'Resume normal error handling.
+    On Error Goto 0
+    echoAndLog "Finished process termination function."
+    echoAndLog "--------------------------------------------------"
     If bKilled Then
         fKillProcs = True
     Else
@@ -261,7 +274,8 @@ For i = LBound(aPrefs) To UBound(aPrefs)
     oFile.Close
     ' If we found a match, kill Thunderbird and write the changes out to file:
     If bWritePrefs Then
-        'Determine if Thunderbird is running and kill it:
+        'Determine if Thunderbird is running and kill it 
+        ' (script will exit if fKillProcs cannot terminate Thunderbird):
         bIsRunning = fKillProcs(aKills)
         echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."
         Set oFile = oFS.OpenTextFile(aPrefs(i), ForWriting)
@@ -280,8 +294,8 @@ For i = LBound(aPrefs) To UBound(aPrefs)
         End Select
         On Error Goto 0
     Else
-        sErr = "The IMAP mailbox path prefix setting was not found in the " & vbCrLf _
-        & "user preferences file.  Thunderbird does not need to be updated."
+        sErr = "No problematic settings were found in the user preferences file." & vbCrLf _
+            & "Thunderbird does not need to be updated."
         echoAndLog sErr
         echoAndLog "*----------------------------------------------------------*"
         echoAndLog "************************************************************"
@@ -359,7 +373,8 @@ If bIsRunning Then
     echoAndLog "--------------------------------------------------"
     'Run the executable in sTPath.  Ensure that it will not terminate when this script exits.
     echoAndLog "Now restarting Thunderbird..."
-    oShell.Run quote & sTPath & quote,ActivateAndDisplay,noWaitOnDisplay
+    ' The "ActivateAndDisplay" preference does not really matter. All flags do the same thing.
+    'oShell.Run quote & sTPath & quote,ActivateAndDisplay,noWaitOnDisplay
     echoAndLog "*----------------------------------------------------------*"
     echoAndLog "************************************************************"
 End If
