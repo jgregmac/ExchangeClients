@@ -204,39 +204,31 @@ do
 		for SALTDIR in `ls "${TBIRDPROFILES}"`
 		do
 			PREFS="${TBIRDPROFILES}/${SALTDIR}/prefs.js"
-			RESTOREFILE="${PREFS}.UVM.Exchange.restore"
+			TMPFILE="${PREFS}.UVM.Exchange.tmp"
 			BACKUP="${PREFS}.UVM.Exchange.backup"
 			
-			# check for backup
-			if [[ ! -f "${BACKUP}" ]] ; 
-			then
-				LOGUPDATE "Creating backup copy of ${PREFS}"
-				# make a backup copy
-				"${INSTALLVOL}"bin/cp "${PREFS}" "${BACKUP}" 2>&1 >> "${LOG}"
-			fi
-			
 			# check for restore file
-			if [[ -f "${RESTOREFILE}" ]] ; 
+			if [[ -f "${BACKUP}" ]] ; 
 			then
-				LOGUPDATE "Previous migration restore file detected."
+				LOGUPDATE "Previous migration backup file detected."
 				if [[ "${HASGUI}" != "" ]] ; 
 				then
 					# running in a graphic user environment, so we'll prompt for user-affecting actions
 					FOCUS Finder
-					PREFSRESTORE=`"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"It appears Exchange migration has already occurred for profile:\" & return & return & \"${PREFS}/${SALTDIR}\" & return & return & \"Do you want to restore the pre-migration IMAP config or keep the current Exchange config?\" buttons {\"Restore old IMAP config.\", \"Keep new Exchange config.\"} default button 2 with title \"UVM Thunderbird/Exchange Migration\" with icon 2 giving up after 600"`
+					PREFSRESTORE=`"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"It appears Exchange migration has already occurred for profile:\" & return & return & \"${PREFS}/${SALTDIR}\" & return & return & \"Do you want to restore the pre-migration backup file or keep the current Exchange config?\" buttons {\"Restore old IMAP config from backup.\", \"Keep new Exchange config.\"} default button 2 with title \"UVM Thunderbird/Exchange Migration\" with icon 2 giving up after 600"`
 					FOCUS Installer
 					LOGUPDATE "User response: ${PREFSRESTORE}"
 
 					if [[ `"${INSTALLVOL}"bin/echo "${PREFSRESTORE}" | "${INSTALLVOL}"usr/bin/grep "old"` != "" ]] ; 
 					then
-						LOGUPDATE "Restoring old IMAP config file."
-						"${INSTALLVOL}"bin/mv "${RESTOREFILE}" "${PREFS}" 2>&1 >> "${LOG}"
+						LOGUPDATE "Restoring backup prefs.js file..."
+						PREFSHASH=`/sbin/md5 "${BACKUP}" | /usr/sbin/awk '{print $4}'`
+						"${INSTALLVOL}"bin/mv "${BACKUP}" "${PREFS}" 2>&1 >> "${LOG}"
+						/usr/sbin/chown ${MYUSER}:staff "${PREFS}"
+						/bin/chmod 700 "${PREFS}"
 						
 						# confirm restoration succeeded
-						SERVERNUM=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "imap.uvm.edu" | "${INSTALLVOL}"usr/bin/grep "hostname" | "${INSTALLVOL}"usr/bin/awk -F "." '{print $3}'`
-						SUBDIR=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory"`
-						
-						if [[ "${SUBDIR}" != "" ]] ; 
+						if [[ `/sbin/md5 "${PREFS}" | /usr/sbin/awk '{print $4}'` == "${PREFSHASH}" ]] ; 
 						then
 							LOGUPDATE "Restoration successful for ${PREFS}"
 							FOCUS Finder
@@ -257,48 +249,54 @@ do
 			else
 				if [[ -f "${PREFS}" ]] ; 
 				then
+					# make a backup copy
+					LOGUPDATE "Creating backup copy of ${PREFS}"
+					"${INSTALLVOL}"bin/cp "${PREFS}" "${BACKUP}" 2>&1 >> "${LOG}"
+
 					# get server number for imap.uvm.edu
-					SERVERNUM=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "imap.uvm.edu" | "${INSTALLVOL}"usr/bin/grep "hostname" | "${INSTALLVOL}"usr/bin/awk -F "." '{print $3}'`
-				
-					if [[ "${SERVERNUM}" != "" ]] ; 
-					then
-						# check for server_sub_directory key
-						SERVERSUB=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory"`
-						
-						if [[ "${SERVERSUB}" != "" ]] ; 
+					for SERVERNUM in `"${INSTALLVOL}"usr/bin/grep "imap.uvm.edu" "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "hostname" | "${INSTALLVOL}"usr/bin/awk -F "." '{print $3}'`
+					do
+						if [[ "${SERVERNUM}" != "" ]] ; 
 						then
-							# remove server_sub_directory line
-							LOGUPDATE "Removing '${SERVERNUM}.server_sub_directory' key from ${PREFS}"
-							"${INSTALLVOL}"usr/bin/sed -i ".UVM.Exchange.restore" -E 's/.*'"${SERVERNUM}"'\.server_sub_directory.*//' "${PREFS}"
-						
-							# confirm delete succeeded
-							SERVERNUM=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "imap.uvm.edu" | "${INSTALLVOL}"usr/bin/grep "hostname" | "${INSTALLVOL}"usr/bin/awk -F "." '{print $3}'`
-							SUBDIR=`"${INSTALLVOL}"bin/cat "${PREFS}" | "${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory"`
-						
-							if [[ "${SUBDIR}" == "" ]] ; 
+							# check for server_sub_directory key
+							SERVERSUB=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
+
+							if [[ "${SERVERSUB}" != "" ]] ; 
 							then
-								LOGUPDATE "Migration successful for ${PREFS}"
-							else
-								LOGUPDATE "Migration FAILED for ${PREFS}"
-								if [[ "${HASGUI}" != "" ]] ; 
+								# remove server_sub_directory line
+								LOGUPDATE "Removing '${SERVERNUM}.server_sub_directory' key from ${PREFS}"
+								"${INSTALLVOL}"usr/bin/sed -i ".UVM.Exchange.tmp" -E 's/.*'"${SERVERNUM}"'\.server_sub_directory.*//' "${PREFS}"
+					
+								# confirm delete succeeded
+								SUBDIR=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
+					
+								if [[ "${SUBDIR}" == "" ]] ; 
 								then
-									LOGUPDATE "Notifying user of failed migration and exiting installer"
-									FOCUS Finder
-									"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"Attempt to migrate:\" & return & return & \"${PREFS}\" & return & return & \"failed. Contact the UVM TechTeam Helpline at helpline@uvm.edu or 802-656-2604 for assistance.\" & return & return & \"Installer will now continue scanning for remaining Thunderbird profiles.\" buttons \"OK\" default button 1 with title \"UVM Thunderbird/Exchange Migration\" with icon 0 giving up after 30"
-									FOCUS Installer
+									LOGUPDATE "Migration successful for ${SERVERNUM} in ${PREFS}"
+									/bin/rm "${TMPFILE}"
+									SERVERSUB=""
+									SUBDIR=""
+								else
+									LOGUPDATE "Migration FAILED for ${PREFS}"
+									if [[ "${HASGUI}" != "" ]] ; 
+									then
+										LOGUPDATE "Notifying user of failed migration and exiting installer"
+										FOCUS Finder
+										"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"Attempt to migrate:\" & return & return & \"${PREFS}\" & return & return & \"failed. Contact the UVM TechTeam Helpline at helpline@uvm.edu or 802-656-2604 for assistance.\" & return & return & \"Installer will now continue scanning for remaining Thunderbird profiles.\" buttons \"OK\" default button 1 with title \"UVM Thunderbird/Exchange Migration\" with icon 0 giving up after 30"
+										FOCUS Installer
+									fi
 								fi
+							else
+								LOGUPDATE "No '${SERVERNUM}.server_sub_directory' key was found in ${PREFS}, nothing to modify."
 							fi
 						else
-							LOGUPDATE "No 'server_sub_directory' key was not found in ${PREFS}, nothing to modify."
-						fi					
-					else
-						LOGUPDATE "No instance of 'imap.uvm.edu' was found in ${PREFS}"
-					fi
+							LOGUPDATE "No further instances of 'imap.uvm.edu' was found in ${PREFS}"
+						fi
+					done
 				else
 					LOGUPDATE "No prefs.js file found in profile directory ${SALTDIR}"
 				fi
 			fi
-
 		done
 	else
 		LOGUPDATE "No Thunderbird profiles detected for ${MYUSER}."
