@@ -10,7 +10,7 @@ REM   - A script and manifest to package, both with root name specified in "fnam
 REM  
 @echo off
 
-set fname=fixThunderbirdMailboxPath
+set fname=exchangePrepForThunderbird
 set SDKPath="C:\Program Files (x86)\Windows Kits\10\bin\x86"
 set TimeStampURL="http://timestamp.verisign.com/scripts/timstamp.dll"
 set /P CertPath="Enter the full path to the PKCS12/PFX signing certificate:"

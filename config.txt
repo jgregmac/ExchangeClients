@@ -1,4 +1,4 @@
 ;!@Install@!UTF-8!
 ExecuteFile="cscript.exe"
-ExecuteParameters="fixThunderbirdMailboxPath.vbs"
+ExecuteParameters="exchangePrepForThunderbird.vbs"
 ;!@InstallEnd@!

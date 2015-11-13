@@ -1,6 +1,7 @@
-'fixThuderbirdMailPrefix.vbs script, J. Greg Mackinnon, 2015-10-22
-' Kills any running Thunderbird processes, removes the legacy mailbox path prefix, 
-' and restarts Thunderbird if it was running.
+'exchangePrepForThunderbird.vbs script, J. Greg Mackinnon, 2015-10-22
+' Kills any running Thunderbird processes, removes the legacy mailbox path prefix,
+' sets the imap new mail check interval to 10 minutes, and restarts Thunderbird if 
+' it was running.
 ' A backup copy of the userpref.js file is created when the script is run.  
 '
 'Provides:
@@ -24,7 +25,7 @@ Dim aKills(1)
 Dim bIsRunning, bRestore
 Dim cScrArgs
 Dim oShell, oFS, oFile, oLog
-Dim re 'Regular Expression
+Dim re1, re2 'Regular Expressions
 Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sTemp
 
 'Set initial values:
@@ -35,12 +36,18 @@ bRestore = False
 'Instantiate Global Objects:
 Set oShell = CreateObject("WScript.Shell")
 Set oFS  = CreateObject("Scripting.FileSystemObject")
-Set re = New RegExp
+Set re1 = New RegExp
+Set re2 = New RegExp
 
 'Initialize Regular Expression object to search for the Mailbox path prefix:
-re.Pattern    = "^user_pref\(""mail\.server\.server[2-9]\.server_sub_directory"""
-re.IgnoreCase = False
-re.Global     = False
+re1.Pattern    = "^user_pref\(""mail\.server\.server[2-9]\.server_sub_directory"""
+re1.IgnoreCase = False
+re1.Global     = False
+'Initialize Regular Expression object to search for the IMAP retry interval:
+'mail.server.server2.check_time
+re2.Pattern    = "^user_pref\(""mail\.server\.server[2-9]\.check_time"""
+re2.IgnoreCase = False
+re2.Global     = False
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Initialize Logging
@@ -54,11 +61,12 @@ Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' Define Functions
 '
 Sub subHelp
-	echoAndLog "fixThunderbirdMailboxPath.vbs Script"
+	echoAndLog "exchangePrepForThunderbird.vbs Script"
 	echoAndLog "by J. Greg Mackinnon, University of Vermont"
 	echoAndLog ""
 	echoAndLog "Kills any running Thunderbird processes, removes the legacy mailbox path prefix, "
-	echoAndLog "and restarts Thunderbird if it was running."
+    echoAndLog "sets the imap new mail check interval to 10 minutes, and restarts Thunderbird "
+	echoAndLog "if it was running."
     echoAndLog ""
 	echoAndLog "A backup copy of the userpref.js file is created when the script is run."
 	echoAndLog "Returns:"
@@ -207,10 +215,11 @@ echoAndLog "*----------------------------------------------------------*"
 
 echoAndLog vbCrLf & "*----------------------------------------------------------*"
 echoAndLog "Begin mailbox path prefix remediation:" & vbCrLf
-Dim bMatch
-bMatch = False
-Dim bPathPrefixFound
-bPathPrefixFound = False
+Dim bMatch1, bMatch2
+bMatch1 = False
+bMatch2 = False
+Dim bWritePrefs
+bWritePrefs = False
 Dim i
 For i = LBound(aPrefs) To UBound(aPrefs)
     'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
@@ -218,18 +227,40 @@ For i = LBound(aPrefs) To UBound(aPrefs)
     Set oFile = oFS.OpenTextFile(aPrefs(i), ForReading)
     Do Until oFile.AtEndOfStream
         sLine = oFile.ReadLine
-        bMatch = re.Test(sLine)
-        If bMatch Then
+        bMatch1 = re1.Test(sLine)
+        bMatch2 = re2.Test(sLine)
+        If bMatch1 Then
             echoAndLog "Found the mailbox path prefix in prefs.js:"
             echoAndLog sLine
-            bPathPrefixFound = True
+            'Flag to write changes to prefs.js to file:
+            bWritePrefs = True
+        ElseIf bMatch2 Then
+            echoAndLog "Found imap retry interval in prefs.js:"
+            echoAndLog sLine
+            'Now modify sLine with the preferred retry interval...
+            'First, locate the current retry value, and capture to "iVal"
+            Dim iLen, iPos, iVal 
+            iPos = InStr(sLine, ",")
+            iLen = (InStr(sLine, ")") - iPos) - 1
+            iVal = Trim(Mid(sLine, (iPos + 1), iLen))
+            'Change the value if greater than 10:
+            if iVal > 10 then
+                echoAndLog "Server retry value is greater than 10"
+                sLine = Replace(sLine,iVal,"10")
+                echoAndLog "New preference file entry: " & vbCrlf & sLine
+                'Write out the modified line to "sNewContents"
+                sNewContents = sNewContents & sLine & vbCrLf
+                'Flag to write changes to prefs.js to file:
+                bWritePrefs = True
+            end if
         Else
+            'Write out the unmodified line to "sNewContents
             sNewContents = sNewContents & sLine & vbCrLf
         End If
     Loop
     oFile.Close
     ' If we found a match, kill Thunderbird and write the changes out to file:
-    If bPathPrefixFound Then
+    If bWritePrefs Then
         'Determine if Thunderbird is running and kill it:
         bIsRunning = fKillProcs(aKills)
         echoAndLog "Now updatating the contents of prefs.js, excluding the mailbox path prefix."

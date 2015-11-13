@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"> 
-  <assemblyIdentity version="1.0.0.0" processorArchitecture="X86" name="UVM Thunderbird Mailbox Path Prefix Repair Tool" type="win32"></assemblyIdentity> 
+  <assemblyIdentity version="1.0.0.0" processorArchitecture="X86" name="UVM Exchange Prep Tool for Thunderbird" type="win32"></assemblyIdentity> 
   <description>UVM WiFi Configuration Tool</description> 
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
