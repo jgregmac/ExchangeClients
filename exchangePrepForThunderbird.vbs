@@ -234,8 +234,10 @@ bMatch2 = False
 Dim bWritePrefs
 bWritePrefs = False
 Dim i
+'Create a loop to process all prefs.js files that were located:
 For i = LBound(aPrefs) To UBound(aPrefs)
     'Test each line prefs.js for line defining the mailbox path prefix, save any non-matching line to sNewContents: 
+    sNewContents = "" 'Clear an existing content from sNewContents (from previous pass through this loop):
     echoAndLog "Reading Pref.js contents: " & vbCrLf & aPrefs(i)
     Set oFile = oFS.OpenTextFile(aPrefs(i), ForReading)
     Do Until oFile.AtEndOfStream
@@ -267,7 +269,7 @@ For i = LBound(aPrefs) To UBound(aPrefs)
                 bWritePrefs = True
             end if
         Else
-            'Write out the unmodified line to "sNewContents
+            'Write out the unmodified line to sNewContents
             sNewContents = sNewContents & sLine & vbCrLf
         End If
     Loop
@@ -294,15 +296,20 @@ For i = LBound(aPrefs) To UBound(aPrefs)
         End Select
         On Error Goto 0
     Else
-        sErr = "No problematic settings were found in the user preferences file." & vbCrLf _
-            & "Thunderbird does not need to be updated."
-        echoAndLog sErr
-        echoAndLog "*----------------------------------------------------------*"
-        echoAndLog "************************************************************"
-        msgBox sErr, 0, sMsgTitle
-        WScript.Quit(0)
+        echoAndLog "No problematic settings found in this prefs.js file."
     End If
 Next
+
+If bWritePrefs = False Then
+    sErr = "No problematic settings were found in the any user preferences files." & vbCrLf _
+    & "Thunderbird does not need to be updated."
+    echoAndLog sErr
+    echoAndLog "*----------------------------------------------------------*"
+    echoAndLog "************************************************************"
+    msgBox sErr, 0, sMsgTitle
+    WScript.Quit(0)
+End If
+
 echoAndLog "End mailbox path prefix remediation."
 echoAndLog "*----------------------------------------------------------*"
 
