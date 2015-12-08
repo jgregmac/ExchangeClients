@@ -2,9 +2,14 @@
 ' Kills any running Thunderbird processes, removes the legacy mailbox path prefix,
 ' sets the imap new mail check interval to 10 minutes, and restarts Thunderbird if 
 ' it was running.
-' A backup copy of the userpref.js file is created when the script is run.  
+' A backup copy of the userpref.js file is created when the script is run.
+' If run silently, Thunderbird will be closed automatically and no message boxes will be displayed.
+'
+' Usage:
+'  cscript.exe exchangePrepForThunderbird.vbs [/silent:(True|False)]
 '
 'Provides:
+' RC=010 - Invalid input paramater.
 ' RC=101 - Could not Locate a Thunderbird user profiles storage directory.
 ' RC=102 - Could not locate a Thunderbird prefs.js file to modify.
 ' RC=200 - User chose not to terminate Thunderbird.  Script execution canceled.
@@ -23,18 +28,19 @@ Const noWaitOnDisplay = 0
 
 'Declare Variables:
 Dim aKills(1)
-Dim bIsRunning, bRestore
-Dim cScrArgs
+Dim bIsRunning, bRestore, bSilent
+Dim cArgs
 Dim oShell, oFS, oFile, oLog
 Dim re1, re2 'Regular Expressions
-Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sTemp
+Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sSilent, sTemp
 
 'Set initial values:
-sMsgTitle = "UVM Exchange Preperation Tool for Thunderbird"
+sMsgTitle = "UVM Exchange Preparation Tool for Thunderbird"
 aKills(0) = "Thunderbird.exe"
 bRestore = False
 
 'Instantiate Global Objects:
+Set cArgs = WScript.Arguments.Named
 Set oShell = CreateObject("WScript.Shell")
 Set oFS  = CreateObject("Scripting.FileSystemObject")
 Set re1 = New RegExp
@@ -58,6 +64,22 @@ Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' End Initialize Logging
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 
+' Determine if we should run silently:
+If cArgs.Exists("silent") Then
+    sSilent = UCase(cArgs.Item("silent"))
+echoAndLog "Silent argument provided with value: " & sSilent
+    If sSilent = "TRUE" Then
+        bSilent = True
+    ElseIf sSilent = "FALSE" Then
+        bSilent = False
+    Else 
+        echoAndLog "Silent argument is invalid.  Please enter either 'True' or 'False'."
+        WScript.Quit
+    End If
+Else
+    bSilent = False
+End If
+
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Define Functions
 '
@@ -70,7 +92,12 @@ Sub subHelp
 	echoAndLog "if it was running."
     echoAndLog ""
 	echoAndLog "A backup copy of the userpref.js file is created when the script is run."
+    echoAndLog ""
+    echoAndLog "If run silently, Thunderbird will be closed automatically and no message boxes will"
+    echoAndLog "be displayed."
+    echoAndLog ""
 	echoAndLog "Returns:"
+    echoAndLog " RC=010 - Invalid input paramater."
     echoAdnLog " RC=101 - Could not Locate a Thunderbird user profiles storage directory."
     echoAndLog " RC=102 - Could not locate a Thunderbird prefs.js file to modify."
     echoAndLog " RC=200 - User chose not to terminate Thunderbird.  Script execution canceled."
@@ -124,7 +151,7 @@ function fKillProcs(aKills)
         sErr = oProc.Name & " is currently running.  Click 'Okay' to exit " _
         & oProc.Name & " and continue with updates."
         iResponse = MsgBox(sErr, 33, sMsgTitle)
-        if iResponse = 1 then
+        if iResponse = 1 or bSilent then
             'Set this to look for errors that aren't fatal when killing processes.
             On Error Resume Next
             oProc.Terminate()
@@ -151,7 +178,9 @@ function fKillProcs(aKills)
                 echoAndLog "--------------------------------------------------"
                 echoAndLog vbCrLf & "script finished."
                 echoAndLog "************************************************************" & vbCrLf
-                msgBox sErr, 16, sMsgTitle
+                If bSilent = False Then
+                    msgBox sErr, 16, sMsgTitle
+                End If
                 WScript.Quit(201)
         End Select
     Next
@@ -186,7 +215,9 @@ Select Case Err.Number
         echoAndLog sErr
         echoAndLog "*----------------------------------------------------------*"
         echoAndLog "************************************************************"
-        msgBox sErr, 16, sMsgTitle
+        If bSilent = False Then
+            msgBox sErr, 16, sMsgTitle
+        End If
         WScript.Quit(101)
 End Select
 On Error Goto 0
@@ -220,7 +251,9 @@ Else
     echoAndLog sErr
     echoAndLog "*----------------------------------------------------------*"
     echoAndLog "************************************************************"
-    msgBox sErr, 16, sMsgTitle
+    If bSilent = False Then
+        msgBox sErr, 16, sMsgTitle
+    End If
     WScript.Quit(102)
 End If
 echoAndLog "*----------------------------------------------------------*"
@@ -291,7 +324,9 @@ For i = LBound(aPrefs) To UBound(aPrefs)
             Case Else
                 sErr = "Could not write out changes to prefs.js! Aborting Script!"
                 echoAndLog sErr
-                msgBox sErr, 16, sMsgTitle
+                If bSilent = False Then
+                    msgBox sErr, 16, sMsgTitle
+                End If
                 WScript.Quit(301)
         End Select
         On Error Goto 0
@@ -306,7 +341,9 @@ If bWritePrefs = False Then
     echoAndLog sErr
     echoAndLog "*----------------------------------------------------------*"
     echoAndLog "************************************************************"
-    msgBox sErr, 0, sMsgTitle
+    If bSilent = False Then
+        msgBox sErr, 0, sMsgTitle
+    End If
     WScript.Quit(0)
 End If
 
@@ -335,7 +372,9 @@ If bIsRunning Then
             echoAndLog sErr
             echoAndLog "*----------------------------------------------------------*"
             echoAndLog "************************************************************"
-            msgBox sErr, 32, sMsgTitle
+            If bSilent = False Then
+                msgBox sErr, 32, sMsgTitle
+            End If
             WScript.Quit(401)
     End Select
     On Error Goto 0
@@ -374,7 +413,9 @@ If bIsRunning Then
         echoAndLog sErr
         echoAndLog "*----------------------------------------------------------*"
         echoAndLog "************************************************************"
-        msgBox sErr, 32, sMsgTitle
+        If bSilent = False Then
+            msgBox sErr, 32, sMsgTitle
+        End If
         WScript.Quit(402)
     End If
     echoAndLog "--------------------------------------------------"
@@ -388,5 +429,8 @@ End If
 
 oLog.Close
 sErr = "Thunderbird preferences files updated successfully." & vbCrLf & "Have a happy migration to Exchange."
-msgBox sErr, 0, sMsgTitle
+echoAndLog eErr
+If bSilent = False Then
+    msgBox sErr, 0, sMsgTitle
+End If
 wscript.quit(0)
