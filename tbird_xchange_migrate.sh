@@ -5,7 +5,7 @@
 # 
 # OS X Thunderbird-Exchange Migration
 # Created ©2015 October 27 by Jonathan L. Trigaux
-# Last modified 20151027.1631
+# Last modified 20151120.1628
 #
 # This script is intended to be bundled as a postflight/postinstall script to a standard OS X .pkg installer.
 # It expects package-defined variables and will behave unexpectedly (or fail outright) if runby itself from the command line.
@@ -107,7 +107,7 @@ then
 		# running in a graphic user environment, so we'll prompt for user-affecting actions
 		LOGUPDATE "Prompting to quit Thunderbird..."
 		FOCUS Finder
-		APPQUIT=`"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"Thunderbird must be closed to continue migration. OK to quit Thunderbird?\" buttons {\"Yes, quit Thunderbird.\", \"No, not yet.\"} default button 2 with title \"UVM Thunderbird/Exchange Migration\" with icon POSIX file (POSIX path of \"${RESOURCES}/tbird.icns\") giving up after 600" 2>&1`
+		APPQUIT=`"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"Thunderbird must be closed to continue migration. OK to quit Thunderbird?\" & return & return & \"(Warning:  If you are in the middle of composing an unsaved/unsent message, it will be lost when Thunderbird quits -- be sure to save/send open compositions before quitting.)\" buttons {\"Yes, quit Thunderbird.\", \"No, not yet.\"} default button 2 with title \"UVM Thunderbird/Exchange Migration\" with icon POSIX file (POSIX path of \"${RESOURCES}/tbird.icns\") giving up after 600" 2>&1`
 		FOCUS Installer
 		LOGUPDATE "User response: ${APPQUIT}"
 			
@@ -222,13 +222,13 @@ do
 					if [[ `"${INSTALLVOL}"bin/echo "${PREFSRESTORE}" | "${INSTALLVOL}"usr/bin/grep "old"` != "" ]] ; 
 					then
 						LOGUPDATE "Restoring backup prefs.js file..."
-						PREFSHASH=`/sbin/md5 "${BACKUP}" | /usr/sbin/awk '{print $4}'`
+						PREFSHASH=`"${INSTALLVOL}"sbin/md5 "${BACKUP}" | "${INSTALLVOL}"usr/sbin/awk '{print $4}'`
 						"${INSTALLVOL}"bin/mv "${BACKUP}" "${PREFS}" 2>&1 >> "${LOG}"
-						/usr/sbin/chown ${MYUSER}:staff "${PREFS}"
-						/bin/chmod 700 "${PREFS}"
+						"${INSTALLVOL}"usr/sbin/chown ${MYUSER}:staff "${PREFS}"
+						"${INSTALLVOL}"bin/chmod 700 "${PREFS}"
 						
 						# confirm restoration succeeded
-						if [[ `/sbin/md5 "${PREFS}" | /usr/sbin/awk '{print $4}'` == "${PREFSHASH}" ]] ; 
+						if [[ `"${INSTALLVOL}"sbin/md5 "${PREFS}" | "${INSTALLVOL}"usr/sbin/awk '{print $4}'` == "${PREFSHASH}" ]] ; 
 						then
 							LOGUPDATE "Restoration successful for ${PREFS}"
 							FOCUS Finder
@@ -249,6 +249,8 @@ do
 			else
 				if [[ -f "${PREFS}" ]] ; 
 				then
+					# set initial failure condition
+					FAILED=false
 					# make a backup copy
 					LOGUPDATE "Creating backup copy of ${PREFS}"
 					"${INSTALLVOL}"bin/cp "${PREFS}" "${BACKUP}" 2>&1 >> "${LOG}"
@@ -259,36 +261,83 @@ do
 						if [[ "${SERVERNUM}" != "" ]] ; 
 						then
 							# check for server_sub_directory key
-							SERVERSUB=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
-
-							if [[ "${SERVERSUB}" != "" ]] ; 
+							SERVERSUBDIR=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
+							if [[ "${SERVERSUBDIR}" != "" ]] ; 
 							then
 								# remove server_sub_directory line
 								LOGUPDATE "Removing '${SERVERNUM}.server_sub_directory' key from ${PREFS}"
 								"${INSTALLVOL}"usr/bin/sed -i ".UVM.Exchange.tmp" -E 's/.*'"${SERVERNUM}"'\.server_sub_directory.*//' "${PREFS}"
 					
 								# confirm delete succeeded
-								SUBDIR=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
+								SUBDIRCONF=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.server_sub_directory" "${PREFS}"`
 					
-								if [[ "${SUBDIR}" == "" ]] ; 
+								if [[ "${SUBDIRCONF}" != "" ]] ; 
 								then
-									LOGUPDATE "Migration successful for ${SERVERNUM} in ${PREFS}"
-									/bin/rm "${TMPFILE}"
-									SERVERSUB=""
-									SUBDIR=""
+									LOGUPDATE "Subdirectory removal FAILED for ${PREFS}"
+									FAILED=true
 								else
-									LOGUPDATE "Migration FAILED for ${PREFS}"
-									if [[ "${HASGUI}" != "" ]] ; 
-									then
-										LOGUPDATE "Notifying user of failed migration and exiting installer"
-										FOCUS Finder
-										"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"Attempt to migrate:\" & return & return & \"${PREFS}\" & return & return & \"failed. Contact the UVM TechTeam Helpline at helpline@uvm.edu or 802-656-2604 for assistance.\" & return & return & \"Installer will now continue scanning for remaining Thunderbird profiles.\" buttons \"OK\" default button 1 with title \"UVM Thunderbird/Exchange Migration\" with icon 0 giving up after 30"
-										FOCUS Installer
-									fi
+									LOGUPDATE "Subdirectory removal successful for ${SERVERNUM} in ${PREFS}"
+									"${INSTALLVOL}"bin/rm "${TMPFILE}"
+									SERVERSUBDIR=""
+									SUBDIRCONF=""
 								fi
 							else
 								LOGUPDATE "No '${SERVERNUM}.server_sub_directory' key was found in ${PREFS}, nothing to modify."
 							fi
+
+							# check for IDLE time
+							IDLE=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.check_time" "${PREFS}"`
+							if [[ "${IDLE}" != "" ]] ; 
+							then
+								# preferred IDLE time
+								SETIDLE=10
+								# get current IDLE time
+								IDLETIME=`"${INSTALLVOL}"bin/echo "${IDLE}" | "${INSTALLVOL}"usr/bin/awk '{gsub (/\);/, ""); print $2}'`
+								LOGUPDATE "Current check time set to ${IDLETIME} minutes"
+								
+								# update IDLE time
+								if (( $IDLETIME != $SETIDLE )) ; 
+								then
+									LOGUPDATE "Setting '${SERVERNUM}.check_time' to ${SETIDLE} minutes in ${PREFS}"
+									"${INSTALLVOL}"usr/bin/sed -i ".UVM.Exchange.tmp" "s/${SERVERNUM}.check_time\", ${IDLETIME}/${SERVERNUM}.check_time\", ${SETIDLE}/" "${PREFS}"
+					
+									# verify change
+									NEWIDLE=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.check_time" "${PREFS}" | "${INSTALLVOL}"usr/bin/awk '{gsub (/\);/, ""); print $2}'`
+									if (( $NEWIDLE != $SETIDLE )) ; 
+									then
+										LOGUPDATE "Check time incorrect value! Expected ${SETIDLE}, but found ${NEWIDLE}."
+										FAILED=true
+									else
+										LOGUPDATE "'${SERVERNUM}.check_time' now set to ${NEWIDLE} minutes."
+										"${INSTALLVOL}"bin/rm "${TMPFILE}"
+										IDLE=""
+										IDLETIME=""
+										NEWIDLE=""
+									fi
+								else
+									LOGUPDATE "Check time already set to recommended value, nothing to change."
+								fi
+							else
+								LOGUPDATE "No '${SERVERNUM}.check_time' key was found in ${PREFS}, setting to ${SETIDLE} minutes..."
+								"${INSTALLVOL}"bin/echo "user_pref(\"mail.server.${SERVERNUM}.check_time\", ${SETIDLE});" >> "${PREFS}"
+
+								# verify change
+								NEWIDLE=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.check_time" "${PREFS}"`
+								if [[ "${NEWIDLE}" == "" ]] ; 
+								then
+									LOGUPDATE "Check time set FAILED, no key found in ${PREFS}"
+									FAILED=true
+								else
+									LOGUPDATE "'${SERVERNUM}.check_time' now set to ${SETIDLE} minutes."
+									"${INSTALLVOL}"bin/rm "${TMPFILE}"
+									IDLE=""
+									NEWIDLE=""
+								fi
+							fi
+
+							# check subscription settings
+							## Mike wants to leave as-is for now
+							# SUBSCRIPTION=`"${INSTALLVOL}"usr/bin/grep "${SERVERNUM}.using_subscription" "${PREFS}"`
 						else
 							LOGUPDATE "No further instances of 'imap.uvm.edu' was found in ${PREFS}"
 						fi
@@ -316,12 +365,31 @@ fi
 ### end run
 #################################################################################################################################
 
-# close out log
-ENDTIME=`"${INSTALLVOL}"bin/date -j`
+if [[ ${FAILED} == true ]] ; 
+then
+	if [[ "${HASGUI}" != "" ]] ; 
+	then
+		LOGUPDATE "Notifying user of failed migration and exiting installer"
+		FOCUS Finder
+		"${INSTALLVOL}"usr/bin/osascript -e "tell application \"Finder\" to display dialog \"One or more profile migrations failed! Check the log file in:\" & return & return & \"${LOG}\" & return & return & \"for details. Contact the UVM TechTeam Helpline at helpline@uvm.edu or 802-656-2604 for assistance.\" buttons \"OK\" default button 1 with title \"UVM Thunderbird/Exchange Migration\" with icon 0 giving up after 60"
+		FOCUS Installer
+	else
+		LOGUPDATE "One or more profile migrations failed! Installer will exit with error."
+	fi
+	ENDTIME=`"${INSTALLVOL}"bin/date -j`
+	
+	LOGUPDATE "Installer exit at ${ENDTIME}"
+	LOGUPDATE "------------------------------------------------------------------"
+	LOGUPDATE ""
+	LOGUPDATE ""
+	exit 1
+else
+	# close out log
+	ENDTIME=`"${INSTALLVOL}"bin/date -j`
 	LOGUPDATE "------------------------------------------------------------------"
 	LOGUPDATE "UVM Thunderbird/Exchange Migration finished at ${ENDTIME}"
 	LOGUPDATE "------------------------------------------------------------------"
 	LOGUPDATE ""
 	LOGUPDATE ""
-
-exit 0
+	exit 0
+fi
