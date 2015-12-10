@@ -30,9 +30,10 @@ Const noWaitOnDisplay = 0
 Dim aKills(1)
 Dim bIsRunning, bRestore, bSilent
 Dim cArgs
+Dim dNow
 Dim oShell, oFS, oFile, oLog
 Dim re1, re2 'Regular Expressions
-Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sMsgTitle, sNewContents, sScrArg, sSilent, sTemp
+Dim sBadArg, sCmd, sErr, sKill, sLine, sLog, sLogRoot, sMsgTitle, sNewContents, sScrArg, sSilent, sTemp
 
 'Set initial values:
 sMsgTitle = "UVM Exchange Preparation Tool for Thunderbird"
@@ -58,8 +59,11 @@ re2.Global     = False
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''
 ' Initialize Logging
+sLogRoot = "exchangePrepForThuderbird"
 sTemp = oShell.ExpandEnvironmentStrings("%TEMP%")
-sLog = "fixThuderbirdMailboxPath.log"
+dNow = Replace(Date(),"/","-") & "-" & Replace(Replace(Time()," ",""),":","_")
+sLog = sLogRoot & "-" & dNow & ".log"
+wscript.echo sLog
 Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' End Initialize Logging
 '''''''''''''''''''''''''''''''''''''''''''''''''''
