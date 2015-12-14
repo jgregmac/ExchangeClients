@@ -431,10 +431,10 @@ If bIsRunning Then
     echoAndLog "************************************************************"
 End If
 
-oLog.Close
 sErr = "Thunderbird preferences files updated successfully." & vbCrLf & "Have a happy migration to Exchange."
-echoAndLog eErr
+echoAndLog sErr
 If bSilent = False Then
     msgBox sErr, 0, sMsgTitle
 End If
+oLog.Close
 wscript.quit(0)
