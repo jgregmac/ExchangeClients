@@ -63,7 +63,6 @@ sLogRoot = "exchangePrepForThuderbird"
 sTemp = oShell.ExpandEnvironmentStrings("%TEMP%")
 dNow = Replace(Date(),"/","-") & "-" & Replace(Replace(Time()," ",""),":","_")
 sLog = sLogRoot & "-" & dNow & ".log"
-wscript.echo sLog
 Set oLog = oFS.OpenTextFile(sTemp & "\" & sLog, 2, True)
 ' End Initialize Logging
 '''''''''''''''''''''''''''''''''''''''''''''''''''
