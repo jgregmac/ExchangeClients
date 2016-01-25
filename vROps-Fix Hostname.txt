@@ -1,5 +1,0 @@
-from Isaac Mazur (internal) to Everyone:
-/opt/vmware/share/vami/vami_set_hostname NewName
-
-from Isaac Mazur (internal) to Everyone:
-http://kb.vmware.com/kb/2108689
